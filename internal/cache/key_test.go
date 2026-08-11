@@ -18,7 +18,7 @@ func TestRedisKeyFormatsCoordinates(t *testing.T) {
 
 func TestCellForCoordinatesPositiveAndNegative(t *testing.T) {
 	cases := []struct {
-		x, y float64
+		x, y         float64
 		wantX, wantY int
 	}{
 		{124.5, 25.0, 2, 0},

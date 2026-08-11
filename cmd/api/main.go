@@ -1,5 +1,19 @@
 package main
 
+import (
+	"context"
+	"log"
+	"net/http"
+	"os"
+
+	"github.com/go-redis/redis/v8"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/paucio/LocationGrid-go/internal/cache"
+	"github.com/paucio/LocationGrid-go/internal/handler"
+	"github.com/paucio/LocationGrid-go/internal/repository"
+)
+
 func main() {
 	ctx := context.Background()
 

@@ -23,7 +23,7 @@ func NewPointRepository(pool *pgxpool.Pool) *PointRepository {
 	return &PointRepository{pool: pool}
 }
 
-func (r *PointRepository) FindByIds(ctx context.Context, ids []int64) ([]*model.Point, error){
+func (r *PointRepository) FindByIds(ctx context.Context, ids []int64) ([]*model.Point, error) {
 	if len(ids) == 0 {
 		return []*model.Point{}, nil
 	}

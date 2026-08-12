@@ -12,7 +12,7 @@ import (
 const batchSize = 1000
 
 type bulkInserter interface {
-	BulkInsert(points []model.Point) error
+	BulkInsert(ctx context.Context, points []model.Point) ([]model.Point, error)
 }
 
 type RedisBulkInserter interface {
@@ -100,7 +100,7 @@ func (i *Importer) ImportPoints(ctx context.Context, url string) (Stats, error) 
 }
 
 func (i *Importer) flush(ctx context.Context, batch []model.Point) error {
-	err := i.repo.BulkInsert(batch)
+	_, err := i.repo.BulkInsert(ctx, batch)
 	if err != nil {
 		return fmt.Errorf("failed to insert batch: %w", err)
 	}

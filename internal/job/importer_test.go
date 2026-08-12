@@ -17,11 +17,11 @@ type fakeBulkInserter struct {
 	err   error
 }
 
-func (f *fakeBulkInserter) BulkInsert(points []model.Point) error {
+func (f *fakeBulkInserter) BulkInsert(ctx context.Context, points []model.Point) ([]model.Point, error) {
 	cp := make([]model.Point, len(points))
 	copy(cp, points)
 	f.calls = append(f.calls, cp)
-	return f.err
+	return cp, f.err
 }
 
 type fakeRedisBulkInserter struct {

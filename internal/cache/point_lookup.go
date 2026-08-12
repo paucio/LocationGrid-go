@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/paucio/LocationGrid-go/internal/model"
 )
 
 type PointLookup struct {
@@ -36,4 +37,28 @@ func (pl *PointLookup) GetPointByCoordinates(ctx context.Context, x, y float64) 
 	}
 
 	return pointIDs, nil
+}
+
+func (pl *PointLookup) AddIDsBulk(ctx context.Context, points []model.Point) error {
+	if len(points) == 0 {
+		return nil
+	}
+
+	idsByCell := make(map[string][]interface{})
+	for _, point := range points {
+		cellX, cellY := CellForCoordinates(point.X, point.Y)
+		key := RedisKey(cellX, cellY)
+		idsByCell[key] = append(idsByCell[key], point.ID)
+	}
+
+	pipeline := pl.client.Pipeline()
+	for key, ids := range idsByCell {
+		pipeline.RPush(ctx, key, ids...)
+	}
+	_, err := pipeline.Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to execute Redis pipeline: %w", err)
+	}
+
+	return nil
 }

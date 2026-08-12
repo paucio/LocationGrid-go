@@ -13,6 +13,7 @@ import (
 // Querier is satisfied by *pgxpool.Pool; it exists so tests can substitute a mock.
 type Querier interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults
 }
 
 type PointRepository struct {
@@ -54,4 +55,38 @@ func (r *PointRepository) FindByIds(ctx context.Context, ids []int64) ([]*model.
 	}
 
 	return points, nil
+}
+
+func (r *PointRepository) BulkInsert(ctx context.Context, points []model.Point) ([]model.Point, error) {
+	if len(points) == 0 {
+		return points, nil
+	}
+
+	const query = `
+		INSERT INTO points (name, x, y)
+		VALUES ($1, $2, $3)
+		RETURNING id
+	`
+
+	batch := &pgx.Batch{}
+	for _, p := range points {
+		batch.Queue(query, p.Name, p.X, p.Y)
+	}
+
+	br := r.pool.SendBatch(ctx, batch)
+	defer br.Close()
+
+	insertedPoints := make([]model.Point, len(points))
+	for i, p := range points {
+		if err := br.QueryRow().Scan(&p.ID); err != nil {
+			return nil, fmt.Errorf("failed to scan inserted point: %w", err)
+		}
+		insertedPoints[i] = p
+	}
+
+	if len(insertedPoints) == 0 {
+		return nil, fmt.Errorf("no points were inserted")
+	}
+
+	return insertedPoints, nil
 }

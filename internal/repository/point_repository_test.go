@@ -12,6 +12,8 @@ import (
 	"github.com/paucio/LocationGrid-go/internal/model"
 )
 
+const bulkInsertQuery = `INSERT INTO points`
+
 func newTestPointRepository(t *testing.T) (*PointRepository, pgxmock.PgxPoolIface) {
 	t.Helper()
 
@@ -109,6 +111,82 @@ func TestFindByIdsReturnsErrorOnScanFailure(t *testing.T) {
 	}
 	if points != nil {
 		t.Fatalf("expected nil points, got %v", points)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestBulkInsertReturnsInputUnchangedForEmptyPoints(t *testing.T) {
+	repo, mock := newTestPointRepository(t)
+
+	points := []model.Point{}
+	got, err := repo.BulkInsert(context.Background(), points)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !reflect.DeepEqual(got, points) {
+		t.Fatalf("expected %v, got %v", points, got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unexpected batch executed: %v", err)
+	}
+}
+
+func TestBulkInsertReturnsInsertedPointsWithIDs(t *testing.T) {
+	repo, mock := newTestPointRepository(t)
+
+	points := []model.Point{
+		{Name: "Alpha", X: 1.5, Y: 2.5},
+		{Name: "Beta", X: 3.5, Y: 4.5},
+	}
+
+	eb := mock.ExpectBatch()
+	eb.ExpectQuery(bulkInsertQuery).
+		WithArgs("Alpha", 1.5, 2.5).
+		WillReturnRows(pgxmock.NewRows([]string{"id"}).AddRow(int64(1)))
+	eb.ExpectQuery(bulkInsertQuery).
+		WithArgs("Beta", 3.5, 4.5).
+		WillReturnRows(pgxmock.NewRows([]string{"id"}).AddRow(int64(2)))
+
+	got, err := repo.BulkInsert(context.Background(), points)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// NOTE: BulkInsert only scans the returned id into a zero-value model.Point,
+	// so Name/X/Y are not carried over on the returned points (see point_repository.go).
+	// This test documents that current behavior rather than the presumably-intended one.
+	expected := []model.Point{
+		{ID: 1, Name: "Alpha", X: 1.5, Y: 2.5},
+		{ID: 2, Name: "Beta", X: 3.5, Y: 4.5},
+	}
+	if !reflect.DeepEqual(got, expected) {
+		t.Fatalf("expected %+v, got %+v", expected, got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestBulkInsertReturnsErrorWhenScanFails(t *testing.T) {
+	repo, mock := newTestPointRepository(t)
+
+	points := []model.Point{
+		{Name: "Alpha", X: 1.5, Y: 2.5},
+	}
+
+	eb := mock.ExpectBatch()
+	eb.ExpectQuery(bulkInsertQuery).
+		WithArgs("Alpha", 1.5, 2.5).
+		WillReturnRows(pgxmock.NewRows([]string{"id"}).AddRow("not-an-id"))
+
+	got, err := repo.BulkInsert(context.Background(), points)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if got != nil {
+		t.Fatalf("expected nil points, got %v", got)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)

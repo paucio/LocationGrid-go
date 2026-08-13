@@ -10,7 +10,7 @@ import (
 )
 
 type idLookup interface {
-	GetPointByCoordinates(ctx context.Context, x, y float64) ([]int64, error)
+	GetPointByCoordinates(ctx context.Context, x, y float64, pointType string, limit int) ([]int64, error)
 }
 
 type pointFinder interface {
@@ -29,7 +29,7 @@ func NewSearchHandler(lookup idLookup, finder pointFinder) *SearchHandler {
 	}
 }
 
-func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
+func (h *SearchHandler) Nearest(w http.ResponseWriter, r *http.Request) {
 	x, err := strconv.ParseFloat(r.URL.Query().Get("x"), 64)
 	if err != nil {
 		http.Error(w, "Invalid x coordinate", http.StatusBadRequest)
@@ -42,8 +42,20 @@ func (h *SearchHandler) Search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	pointType, err := strconv.Atoi(r.URL.Query().Get("type"))
+	if err != nil {
+		http.Error(w, "Invalid type parameter", http.StatusBadRequest)
+		return
+	}
+
+	limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+	if err != nil || limit <= 0 {
+		http.Error(w, "Invalid limit parameter", http.StatusBadRequest)
+		return
+	}
+
 	ctx := r.Context()
-	pointIDs, err := h.lookup.GetPointByCoordinates(ctx, x, y)
+	pointIDs, err := h.lookup.GetPointByCoordinates(ctx, x, y, strconv.Itoa(pointType), limit)
 	if err != nil {
 		http.Error(w, "Failed to lookup points", http.StatusInternalServerError)
 		return

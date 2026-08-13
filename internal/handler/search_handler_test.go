@@ -13,11 +13,19 @@ import (
 )
 
 type fakeIDLookup struct {
-	ids []int64
-	err error
+	ids      []int64
+	err      error
+	gotX     float64
+	gotY     float64
+	gotType  string
+	gotLimit int
 }
 
-func (f *fakeIDLookup) GetPointByCoordinates(ctx context.Context, x, y float64) ([]int64, error) {
+func (f *fakeIDLookup) GetPointByCoordinates(ctx context.Context, x, y float64, pointType string, limit int) ([]int64, error) {
+	f.gotX = x
+	f.gotY = y
+	f.gotType = pointType
+	f.gotLimit = limit
 	return f.ids, f.err
 }
 
@@ -35,10 +43,10 @@ func (f *fakePointFinder) FindByIds(ctx context.Context, ids []int64) ([]*model.
 func TestSearchReturnsBadRequestForInvalidX(t *testing.T) {
 	h := NewSearchHandler(&fakeIDLookup{}, &fakePointFinder{})
 
-	req := httptest.NewRequest(http.MethodGet, "/search?x=notanumber&y=1.0", nil)
+	req := httptest.NewRequest(http.MethodGet, "/search?x=notanumber&y=1.0&type=1&limit=10", nil)
 	rec := httptest.NewRecorder()
 
-	h.Search(rec, req)
+	h.Nearest(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
@@ -48,13 +56,90 @@ func TestSearchReturnsBadRequestForInvalidX(t *testing.T) {
 func TestSearchReturnsBadRequestForInvalidY(t *testing.T) {
 	h := NewSearchHandler(&fakeIDLookup{}, &fakePointFinder{})
 
-	req := httptest.NewRequest(http.MethodGet, "/search?x=1.0&y=notanumber", nil)
+	req := httptest.NewRequest(http.MethodGet, "/search?x=1.0&y=notanumber&type=1&limit=10", nil)
 	rec := httptest.NewRecorder()
 
-	h.Search(rec, req)
+	h.Nearest(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
+	}
+}
+
+func TestSearchReturnsBadRequestForMissingType(t *testing.T) {
+	h := NewSearchHandler(&fakeIDLookup{}, &fakePointFinder{})
+
+	req := httptest.NewRequest(http.MethodGet, "/search?x=1.0&y=2.0&limit=10", nil)
+	rec := httptest.NewRecorder()
+
+	h.Nearest(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
+	}
+}
+
+func TestSearchReturnsBadRequestForNonNumericType(t *testing.T) {
+	h := NewSearchHandler(&fakeIDLookup{}, &fakePointFinder{})
+
+	req := httptest.NewRequest(http.MethodGet, "/search?x=1.0&y=2.0&type=shop&limit=10", nil)
+	rec := httptest.NewRecorder()
+
+	h.Nearest(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
+	}
+}
+
+func TestSearchReturnsBadRequestForMissingLimit(t *testing.T) {
+	h := NewSearchHandler(&fakeIDLookup{}, &fakePointFinder{})
+
+	req := httptest.NewRequest(http.MethodGet, "/search?x=1.0&y=2.0&type=1", nil)
+	rec := httptest.NewRecorder()
+
+	h.Nearest(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, rec.Code)
+	}
+}
+
+func TestSearchReturnsBadRequestForZeroOrNegativeLimit(t *testing.T) {
+	for _, limit := range []string{"0", "-5"} {
+		req := httptest.NewRequest(http.MethodGet, "/search?x=1.0&y=2.0&type=1&limit="+limit, nil)
+		rec := httptest.NewRecorder()
+
+		h := NewSearchHandler(&fakeIDLookup{}, &fakePointFinder{})
+		h.Nearest(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("limit=%s: expected status %d, got %d", limit, http.StatusBadRequest, rec.Code)
+		}
+	}
+}
+
+func TestSearchPassesParsedCoordinatesTypeAndLimitToLookup(t *testing.T) {
+	lookup := &fakeIDLookup{ids: []int64{1, 2}}
+	finder := &fakePointFinder{}
+	h := NewSearchHandler(lookup, finder)
+
+	req := httptest.NewRequest(http.MethodGet, "/search?x=1.5&y=2.5&type=7&limit=10", nil)
+	rec := httptest.NewRecorder()
+
+	h.Nearest(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+	if lookup.gotX != 1.5 || lookup.gotY != 2.5 {
+		t.Fatalf("expected lookup called with (1.5, 2.5), got (%v, %v)", lookup.gotX, lookup.gotY)
+	}
+	if lookup.gotType != "7" {
+		t.Fatalf("expected lookup called with type %q, got %q", "7", lookup.gotType)
+	}
+	if lookup.gotLimit != 10 {
+		t.Fatalf("expected lookup called with limit 10, got %d", lookup.gotLimit)
 	}
 }
 
@@ -63,10 +148,10 @@ func TestSearchReturnsInternalServerErrorWhenLookupFails(t *testing.T) {
 	finder := &fakePointFinder{}
 	h := NewSearchHandler(lookup, finder)
 
-	req := httptest.NewRequest(http.MethodGet, "/search?x=1.0&y=2.0", nil)
+	req := httptest.NewRequest(http.MethodGet, "/search?x=1.0&y=2.0&type=1&limit=10", nil)
 	rec := httptest.NewRecorder()
 
-	h.Search(rec, req)
+	h.Nearest(rec, req)
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, rec.Code)
@@ -78,10 +163,10 @@ func TestSearchReturnsInternalServerErrorWhenFinderFails(t *testing.T) {
 	finder := &fakePointFinder{err: errors.New("boom")}
 	h := NewSearchHandler(lookup, finder)
 
-	req := httptest.NewRequest(http.MethodGet, "/search?x=1.0&y=2.0", nil)
+	req := httptest.NewRequest(http.MethodGet, "/search?x=1.0&y=2.0&type=1&limit=10", nil)
 	rec := httptest.NewRecorder()
 
-	h.Search(rec, req)
+	h.Nearest(rec, req)
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected status %d, got %d", http.StatusInternalServerError, rec.Code)
@@ -97,10 +182,10 @@ func TestSearchReturnsPointsAsJSON(t *testing.T) {
 	finder := &fakePointFinder{points: expected}
 	h := NewSearchHandler(lookup, finder)
 
-	req := httptest.NewRequest(http.MethodGet, "/search?x=1.5&y=2.5", nil)
+	req := httptest.NewRequest(http.MethodGet, "/search?x=1.5&y=2.5&type=1&limit=10", nil)
 	rec := httptest.NewRecorder()
 
-	h.Search(rec, req)
+	h.Nearest(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
@@ -126,10 +211,10 @@ func TestSearchReturnsEmptyJSONArrayWhenNoPointsFound(t *testing.T) {
 	finder := &fakePointFinder{points: []*model.Point{}}
 	h := NewSearchHandler(lookup, finder)
 
-	req := httptest.NewRequest(http.MethodGet, "/search?x=1.5&y=2.5", nil)
+	req := httptest.NewRequest(http.MethodGet, "/search?x=1.5&y=2.5&type=1&limit=10", nil)
 	rec := httptest.NewRecorder()
 
-	h.Search(rec, req)
+	h.Nearest(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)

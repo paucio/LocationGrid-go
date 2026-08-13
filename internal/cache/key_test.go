@@ -8,8 +8,8 @@ import (
 )
 
 func TestRedisKeyFormatsCoordinates(t *testing.T) {
-	got := RedisKey(2, -3)
-	want := "point_x:2.000000:y:-3.000000"
+	got := RedisKey(2, -3, "shop")
+	want := "point_shop_x:2.000000:y:-3.000000"
 
 	if got != want {
 		t.Fatalf("RedisKey() = %q, want %q", got, want)

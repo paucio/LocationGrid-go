@@ -1,0 +1,2 @@
+
+UPDATE points ADD COLUMN type VARCHAR(255) DEFAULT 'shop' NOT NULL;

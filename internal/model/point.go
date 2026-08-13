@@ -6,4 +6,5 @@ type Point struct {
 	Name string  `json:"name"`
 	X    float64 `json:"x"`
 	Y    float64 `json:"y"`
+	Type string  `json:"type"`
 }

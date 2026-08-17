@@ -42,9 +42,11 @@ func main() {
 	pointLookup := cache.NewPointLookup(redisClient)
 
 	searchHandler := handler.NewSearchHandler(pointLookup, pointRepo)
+	findHandler := handler.NewFindHandler(pointRepo)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/search", searchHandler.Nearest)
+	mux.HandleFunc("/nearest", searchHandler.Nearest)
+	mux.HandleFunc("/find", findHandler.Find)
 
 	log.Println("Starting server on :8080")
 	if err := http.ListenAndServe(":8080", mux); err != nil {

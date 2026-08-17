@@ -193,6 +193,100 @@ func TestBulkInsertReturnsErrorWhenScanFails(t *testing.T) {
 	}
 }
 
+func TestFindByIDReturnsPointWhenFound(t *testing.T) {
+	repo, mock := newTestPointRepository(t)
+
+	x, y := 1.5, 2.5
+	rows := pgxmock.NewRows([]string{"id", "name", "x", "y"}).
+		AddRow(int64(1), "Alpha", x, y)
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id,name, x, y")).
+		WithArgs(x, y).
+		WillReturnRows(rows)
+
+	point, err := repo.FindByID(context.Background(), x, y)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := &model.Point{ID: 1, Name: "Alpha", X: x, Y: y}
+	if !reflect.DeepEqual(point, expected) {
+		t.Fatalf("expected %+v, got %+v", expected, point)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestFindByIDReturnsNilWhenNoRowsMatch(t *testing.T) {
+	repo, mock := newTestPointRepository(t)
+
+	x, y := 1.5, 2.5
+	rows := pgxmock.NewRows([]string{"id", "name", "x", "y"})
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id,name, x, y")).
+		WithArgs(x, y).
+		WillReturnRows(rows)
+
+	point, err := repo.FindByID(context.Background(), x, y)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if point != nil {
+		t.Fatalf("expected nil point, got %+v", point)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestFindByIDReturnsErrorWhenQueryFails(t *testing.T) {
+	repo, mock := newTestPointRepository(t)
+
+	x, y := 1.5, 2.5
+	queryErr := errors.New("boom")
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id,name, x, y")).
+		WithArgs(x, y).
+		WillReturnError(queryErr)
+
+	point, err := repo.FindByID(context.Background(), x, y)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, queryErr) {
+		t.Fatalf("expected wrapped query error, got %v", err)
+	}
+	if point != nil {
+		t.Fatalf("expected nil point, got %+v", point)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestFindByIDReturnsErrorOnScanFailure(t *testing.T) {
+	repo, mock := newTestPointRepository(t)
+
+	x, y := 1.5, 2.5
+	rows := pgxmock.NewRows([]string{"id", "name", "x", "y"}).
+		AddRow("not-an-id", "Alpha", x, y)
+
+	mock.ExpectQuery(regexp.QuoteMeta("SELECT id,name, x, y")).
+		WithArgs(x, y).
+		WillReturnRows(rows)
+
+	point, err := repo.FindByID(context.Background(), x, y)
+	if err == nil {
+		t.Fatal("expected scan error, got nil")
+	}
+	if point != nil {
+		t.Fatalf("expected nil point, got %+v", point)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
 func TestFindByIdsReturnsEmptySliceWhenNoRowsMatch(t *testing.T) {
 	repo, mock := newTestPointRepository(t)
 

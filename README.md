@@ -11,20 +11,25 @@ fetched from Postgres.
   Point IDs for each cell are cached in Redis under a key derived from the
   cell coordinates and the point's `type` (e.g. `point_shop_x:...:y:...`), so
   different point types are indexed independently even at the same location.
-- `GET /search?x=<x>&y=<y>&type=<type>&limit=<limit>` resolves the cell for
+- `GET /nearest?x=<x>&y=<y>&type=<type>&limit=<limit>` resolves the cell for
   `(x, y)`, then searches outward ring by ring (cell, then its neighbors at
   radius 1, 2, ...) through Redis for IDs matching `type`, stopping once at
   least `limit` IDs have been found (it does not trim the result down to
   exactly `limit`). It then loads the full point records for those IDs from
   Postgres.
+- `GET /find?x=<x>&y=<y>` looks up a single point by an exact coordinate
+  match directly in Postgres — no Redis/grid cell involved, and no `type`
+  filter. Returns `null` (200 OK) if nothing matches those exact coordinates.
 - The import job (`cmd/import-job`) streams a CSV of points, batches them
   (1000 at a time), bulk-inserts each batch into Postgres, and then indexes
   the newly assigned IDs into the same Redis grid cache so they're
   immediately searchable.
 
 ```
-Search:  Request → SearchHandler → PointLookup (Redis: coords → point IDs)
-                                 → PointRepository (Postgres: IDs → points)
+Nearest: Request → SearchHandler.Nearest → PointLookup (Redis: coords → point IDs)
+                                         → PointRepository.FindByIds (Postgres: IDs → points)
+
+Find:    Request → FindHandler → PointRepository.FindByID (Postgres: exact x,y → point)
 
 Import:  CSV → Importer → PointRepository.BulkInsert (Postgres: insert, assign IDs)
                         → PointLookup.AddIDsBulk (Redis: index IDs by grid cell)
@@ -40,7 +45,7 @@ internal/db/                 Postgres connection pool setup
 internal/handler/             HTTP handlers
 internal/job/                 CSV parsing and the batch importer
 internal/model/               domain types
-internal/repository/          Postgres data access (find, bulk insert)
+internal/repository/          Postgres data access (find by IDs, find by exact coords, bulk insert)
 ```
 
 ## Requirements
@@ -76,7 +81,7 @@ go run ./cmd/api
 The server listens on `:8080`.
 
 ```sh
-curl "http://localhost:8080/search?x=124.5&y=25.0&type=1&limit=10"
+curl "http://localhost:8080/nearest?x=124.5&y=25.0&type=1&limit=10"
 ```
 
 `x` and `y` are required floats, `type` is a required integer, and `limit`
@@ -88,6 +93,14 @@ for). Returns a JSON array of matching points, e.g.:
   {"id": 101, "name": "Alpha", "x": 124.5, "y": 25.0, "type": "1"}
 ]
 ```
+
+```sh
+curl "http://localhost:8080/find?x=124.5&y=25.0"
+```
+
+`x` and `y` are required floats. Returns a single point matching those exact
+coordinates, or `null` if none exists — no `type`/`limit`, and no radius
+search like `/nearest`.
 
 ### Import job
 
@@ -102,9 +115,10 @@ columns, or with non-numeric `x`/`y`, are skipped and counted separately
 from successfully imported points.
 
 > **Known gap:** the CSV parser doesn't populate `Point.Type`, so every
-> imported point is indexed in Redis under an empty type. Since `/search`
+> imported point is indexed in Redis under an empty type. Since `/nearest`
 > always queries with a specific numeric `type`, points imported via this
-> job are not currently discoverable through the API. Fix this in
+> job are not currently discoverable through that endpoint (though they are
+> still findable via `/find`, which doesn't filter by type). Fix this in
 > `internal/job/csvparse.go` if/when the CSV format grows a type column.
 
 ## Testing

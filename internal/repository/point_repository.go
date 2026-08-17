@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -13,6 +14,7 @@ import (
 // Querier is satisfied by *pgxpool.Pool; it exists so tests can substitute a mock.
 type Querier interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults
 }
 
@@ -89,4 +91,23 @@ func (r *PointRepository) BulkInsert(ctx context.Context, points []model.Point) 
 	}
 
 	return insertedPoints, nil
+}
+
+func (r *PointRepository) FindByID(ctx context.Context, x, y float64) (*model.Point, error) {
+	const query = `
+		SELECT id,name, x, y
+		FROM points
+		WHERE x = $1 AND y = $2
+	`
+
+	var p model.Point
+	err := r.pool.QueryRow(ctx, query, x, y).Scan(&p.ID, &p.Name, &p.X, &p.Y)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to query point: %w", err)
+	}
+
+	return &p, nil
 }

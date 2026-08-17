@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/paucio/LocationGrid-go/internal/model"
@@ -15,6 +16,7 @@ import (
 type Querier interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, arg ...any) (pgconn.CommandTag, error)
 	SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults
 }
 
@@ -65,14 +67,14 @@ func (r *PointRepository) BulkInsert(ctx context.Context, points []model.Point) 
 	}
 
 	const query = `
-		INSERT INTO points (name, x, y)
-		VALUES ($1, $2, $3)
+		INSERT INTO points (name, x, y, type)
+		VALUES ($1, $2, $3, $4)
 		RETURNING id
 	`
 
 	batch := &pgx.Batch{}
 	for _, p := range points {
-		batch.Queue(query, p.Name, p.X, p.Y)
+		batch.Queue(query, p.Name, p.X, p.Y, p.Type)
 	}
 
 	br := r.pool.SendBatch(ctx, batch)
@@ -110,4 +112,18 @@ func (r *PointRepository) FindByID(ctx context.Context, x, y float64) (*model.Po
 	}
 
 	return &p, nil
+}
+
+func (r *PointRepository) CreatePoint(ctx context.Context, p *model.Point) error {
+	const query = `
+		INSERT INTO points(name, x, y, type)
+		VALUES ($1, $2, $3, $4)
+	`
+
+	_, err := r.pool.Exec(ctx, query, &p.Name, &p.X, &p.Y, &p.Type)
+	if err != nil {
+		return fmt.Errorf("failed to create point: %w", err)
+	}
+
+	return nil
 }

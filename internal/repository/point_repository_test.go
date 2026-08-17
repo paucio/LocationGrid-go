@@ -137,16 +137,16 @@ func TestBulkInsertReturnsInsertedPointsWithIDs(t *testing.T) {
 	repo, mock := newTestPointRepository(t)
 
 	points := []model.Point{
-		{Name: "Alpha", X: 1.5, Y: 2.5},
-		{Name: "Beta", X: 3.5, Y: 4.5},
+		{Name: "Alpha", X: 1.5, Y: 2.5, Type: "shop"},
+		{Name: "Beta", X: 3.5, Y: 4.5, Type: "restaurant"},
 	}
 
 	eb := mock.ExpectBatch()
 	eb.ExpectQuery(bulkInsertQuery).
-		WithArgs("Alpha", 1.5, 2.5).
+		WithArgs("Alpha", 1.5, 2.5, "shop").
 		WillReturnRows(pgxmock.NewRows([]string{"id"}).AddRow(int64(1)))
 	eb.ExpectQuery(bulkInsertQuery).
-		WithArgs("Beta", 3.5, 4.5).
+		WithArgs("Beta", 3.5, 4.5, "restaurant").
 		WillReturnRows(pgxmock.NewRows([]string{"id"}).AddRow(int64(2)))
 
 	got, err := repo.BulkInsert(context.Background(), points)
@@ -154,12 +154,9 @@ func TestBulkInsertReturnsInsertedPointsWithIDs(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// NOTE: BulkInsert only scans the returned id into a zero-value model.Point,
-	// so Name/X/Y are not carried over on the returned points (see point_repository.go).
-	// This test documents that current behavior rather than the presumably-intended one.
 	expected := []model.Point{
-		{ID: 1, Name: "Alpha", X: 1.5, Y: 2.5},
-		{ID: 2, Name: "Beta", X: 3.5, Y: 4.5},
+		{ID: 1, Name: "Alpha", X: 1.5, Y: 2.5, Type: "shop"},
+		{ID: 2, Name: "Beta", X: 3.5, Y: 4.5, Type: "restaurant"},
 	}
 	if !reflect.DeepEqual(got, expected) {
 		t.Fatalf("expected %+v, got %+v", expected, got)
@@ -173,12 +170,12 @@ func TestBulkInsertReturnsErrorWhenScanFails(t *testing.T) {
 	repo, mock := newTestPointRepository(t)
 
 	points := []model.Point{
-		{Name: "Alpha", X: 1.5, Y: 2.5},
+		{Name: "Alpha", X: 1.5, Y: 2.5, Type: "shop"},
 	}
 
 	eb := mock.ExpectBatch()
 	eb.ExpectQuery(bulkInsertQuery).
-		WithArgs("Alpha", 1.5, 2.5).
+		WithArgs("Alpha", 1.5, 2.5, "shop").
 		WillReturnRows(pgxmock.NewRows([]string{"id"}).AddRow("not-an-id"))
 
 	got, err := repo.BulkInsert(context.Background(), points)
@@ -281,6 +278,53 @@ func TestFindByIDReturnsErrorOnScanFailure(t *testing.T) {
 	}
 	if point != nil {
 		t.Fatalf("expected nil point, got %+v", point)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestCreatePointExecutesInsert(t *testing.T) {
+	repo, mock := newTestPointRepository(t)
+
+	p := &model.Point{Name: "Alpha", X: 1.5, Y: 2.5, Type: "shop"}
+
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO points(name, x, y, type)")).
+		WithArgs(&p.Name, &p.X, &p.Y, &p.Type).
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
+
+	if err := repo.CreatePoint(context.Background(), p); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+
+	// NOTE: CreatePoint's INSERT has no RETURNING clause, so the
+	// Postgres-generated ID is never scanned back into p. This test
+	// documents that current behavior rather than the presumably-intended
+	// one (see point_repository.go).
+	if p.ID != 0 {
+		t.Fatalf("expected ID to remain unset (0), got %d", p.ID)
+	}
+}
+
+func TestCreatePointReturnsErrorWhenExecFails(t *testing.T) {
+	repo, mock := newTestPointRepository(t)
+
+	p := &model.Point{Name: "Alpha", X: 1.5, Y: 2.5, Type: "shop"}
+	execErr := errors.New("boom")
+
+	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO points(name, x, y, type)")).
+		WithArgs(&p.Name, &p.X, &p.Y, &p.Type).
+		WillReturnError(execErr)
+
+	err := repo.CreatePoint(context.Background(), p)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, execErr) {
+		t.Fatalf("expected wrapped exec error, got %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet expectations: %v", err)
